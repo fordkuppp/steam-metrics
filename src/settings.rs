@@ -11,9 +11,10 @@ pub struct SteamConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct OtlpConfig {
-    pub enabled: bool,
     pub collector_endpoint: String,
     pub protocol: OtlpProtocol,
+    pub log_level: String,
+    pub enable_stdout: bool,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -25,6 +26,7 @@ pub enum OtlpProtocol {
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
+    pub service_name: String,
     pub steam: SteamConfig,
     pub otlp_config: OtlpConfig,
 }
@@ -40,11 +42,15 @@ impl Settings {
             .build()?
             .try_deserialize()?;
 
-        SETTINGS.set(settings).expect("Settings already initialized");
+        SETTINGS
+            .set(settings)
+            .expect("Settings already initialized");
         Ok(())
     }
 
     pub fn get() -> &'static Settings {
-        SETTINGS.get().expect("Settings not initialized. Call Settings::init() first.")
+        SETTINGS
+            .get()
+            .expect("Settings not initialized. Call Settings::init() first.")
     }
 }

@@ -1,9 +1,9 @@
-use reqwest;
-use url::Url;
-use anyhow::Result;
-use log::{debug};
-use crate::settings::Settings;
 use super::player_summaries_models::PlayerSummariesResponse;
+use crate::settings::Settings;
+use anyhow::Result;
+use reqwest;
+use tracing::debug;
+use url::Url;
 
 #[derive(Clone)]
 pub struct SteamClient {
@@ -20,10 +20,7 @@ impl SteamClient {
 
     const PLAYER_SUMMARIES_ENDPOINT: &'static str = "ISteamUser/GetPlayerSummaries/v0002/";
 
-    pub async fn fetch_player_summaries(
-        &self,
-        steam_id: &str,
-    ) -> Result<PlayerSummariesResponse> {
+    pub async fn fetch_player_summaries(&self, steam_id: &str) -> Result<PlayerSummariesResponse> {
         let mut endpoint = self.api_url.join(Self::PLAYER_SUMMARIES_ENDPOINT)?;
         endpoint
             .query_pairs_mut()

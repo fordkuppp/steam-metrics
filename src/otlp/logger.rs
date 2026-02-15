@@ -1,47 +1,51 @@
-// use opentelemetry_otlp::WithExportConfig;
-// use opentelemetry_sdk::logs::SdkLoggerProvider;
-// use tracing_subscriber::prelude::*;
-// use crate::settings::{Settings, OtlpProtocol};
-//
-// pub fn init_logger() -> SdkLoggerProvider {
-//     let config = &Settings::get().otlp_config;
-//
-//     // 1. Setup Stdout Exporter (similar to your metrics style)
-//     let stdout_exporter = opentelemetry_stdout::LogExporter::default();
-//     let mut builder = SdkLoggerProvider::builder()
-//         .with_simple_exporter(stdout_exporter);
-//
-//     // 2. Conditionally add OTLP Exporter
-//     if config.enabled {
-//         let exporter_builder = opentelemetry_otlp::LogExporter::builder();
-//
-//         let otlp_exporter = match config.protocol {
-//             OtlpProtocol::Tonic => exporter_builder
-//                 .with_tonic()
-//                 .with_endpoint(config.collector_endpoint.clone())
-//                 .build()
-//                 .expect("OTLP Logs Tonic build failed"),
-//             OtlpProtocol::Http => exporter_builder
-//                 .with_http()
-//                 .with_endpoint(config.collector_endpoint.clone())
-//                 .build()
-//                 .expect("OTLP Logs HTTP build failed"),
-//         };
-//
-//         // Use batch exporter for OTLP to improve performance
-//         builder = builder.with_batch_exporter(otlp_exporter);
-//     }
-//
-//     let provider = builder.build();
-//
-//     // 3. Bridge to Tracing
-//     // This allows tracing::info!, tracing::error!, etc. to flow into OTel
-//     let otel_layer = Layer::new(&provider);
-//
-//     tracing_subscriber::registry()
-//         .with(tracing_subscriber::filter::LevelFilter::INFO) // Ensure INFO is captured
-//         .with(otel_layer)
-//         .init();
-//
-//     provider
-// }
+use crate::settings::{OtlpProtocol, Settings};
+use opentelemetry_appender_tracing::layer;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::logs::SdkLoggerProvider;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::prelude::*;
+
+pub fn init_logger() -> SdkLoggerProvider {
+    let config = &Settings::get();
+
+    let exporter_builder = opentelemetry_otlp::LogExporter::builder();
+
+    let otlp_exporter = match config.otlp_config.protocol {
+        OtlpProtocol::Tonic => exporter_builder
+            .with_tonic()
+            .with_endpoint(config.otlp_config.collector_endpoint.clone())
+            .build()
+            .expect("OTLP Log Tonic build failed"),
+        OtlpProtocol::Http => exporter_builder
+            .with_http()
+            .with_endpoint(config.otlp_config.collector_endpoint.clone())
+            .build()
+            .expect("OTLP Log HTTP build failed"),
+    };
+
+    let provider: SdkLoggerProvider = SdkLoggerProvider::builder()
+        .with_resource(
+            Resource::builder()
+                .with_service_name(config.service_name.clone())
+                .build(),
+        )
+        .with_batch_exporter(otlp_exporter) // Batching is better for production OTLP
+        .build();
+
+    let filter_otel =
+        EnvFilter::new(&config.otlp_config.log_level).add_directive("reqwest=off".parse().unwrap());
+    let otel_layer = layer::OpenTelemetryTracingBridge::new(&provider).with_filter(filter_otel);
+
+    let filter_fmt = EnvFilter::new("info").add_directive("opentelemetry=debug".parse().unwrap());
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_thread_names(true)
+        .with_filter(filter_fmt);
+
+    tracing_subscriber::registry()
+        .with(otel_layer)
+        .with(fmt_layer)
+        .init();
+
+    provider
+}

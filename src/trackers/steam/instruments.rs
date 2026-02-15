@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use opentelemetry::{
-    metrics::{Counter, Meter, Histogram},
     global,
+    metrics::{Counter, Histogram, Meter},
 };
 
 lazy_static! {

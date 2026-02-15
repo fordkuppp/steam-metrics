@@ -1,16 +1,16 @@
-use std::sync::Arc;
+use crate::settings::Settings;
+use crate::trackers::steam::client::SteamClient;
+use anyhow::Result;
 use opentelemetry::KeyValue;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
-use crate::trackers::steam::client::SteamClient;
-use anyhow::{Result};
-use crate::settings::Settings;
-use tracing::{info, error};
+use tracing::{error, info};
 
 pub struct SteamTracker {
     job_scheduler: JobScheduler,
     steam_client: Arc<SteamClient>,
-    steam_ids: Vec<String>
+    steam_ids: Vec<String>,
 }
 
 impl SteamTracker {
@@ -30,7 +30,11 @@ impl SteamTracker {
     }
 
     pub async fn add_player_summaries_job(&self) -> Result<()> {
-        async fn polling_logic(polling_client: Arc<SteamClient>, last_game_id_clone: Arc<Mutex<Option<String>>>, steam_ids: Vec<String>) {
+        async fn polling_logic(
+            polling_client: Arc<SteamClient>,
+            last_game_id_clone: Arc<Mutex<Option<String>>>,
+            steam_ids: Vec<String>,
+        ) {
             let steam_ids = steam_ids.clone();
             let steam_id = steam_ids.first().unwrap();
             let result = polling_client.fetch_player_summaries(steam_id).await;
@@ -43,12 +47,22 @@ impl SteamTracker {
                                 if last_id == game_id {
                                     let attributes = [
                                         KeyValue::new("game_id", game_id.clone()),
-                                        KeyValue::new("steam_id", player_info.steam_id.clone())
+                                        KeyValue::new("steam_id", player_info.steam_id.clone()),
                                     ];
-                                    super::instruments::STEAM_GAME_TIME_TOTAL.add(Settings::get().steam.polling_interval_seconds as u64, &attributes);
-                                    info!("User is still playing game {}, incremented counter by {}s", game_id, Settings::get().steam.polling_interval_seconds);
+                                    super::instruments::STEAM_GAME_TIME_TOTAL.add(
+                                        Settings::get().steam.polling_interval_seconds as u64,
+                                        &attributes,
+                                    );
+                                    info!(
+                                        "User is still playing game {}, incremented counter by {}s",
+                                        game_id,
+                                        Settings::get().steam.polling_interval_seconds
+                                    );
                                 } else {
-                                    info!("User switched from game {} to {}. Resetting timer.", last_id, game_id);
+                                    info!(
+                                        "User switched from game {} to {}. Resetting timer.",
+                                        last_id, game_id
+                                    );
                                 }
                             } else {
                                 info!("User started playing game {}. Starting timer.", game_id);
@@ -59,29 +73,33 @@ impl SteamTracker {
                             *last_game_id = None;
                         }
                     }
-                },
+                }
                 Err(e) => {
                     error!("Error polling Steam API: {}", e);
                 }
             }
-
         }
-        let polling_interval = format!("1/{} * * * * *", Settings::get().steam.polling_interval_seconds);
+        let polling_interval = format!(
+            "1/{} * * * * *",
+            Settings::get().steam.polling_interval_seconds
+        );
 
         let steam_ids = self.steam_ids.clone();
 
         let polling_client = self.steam_client.clone();
         let last_game_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
-        self.job_scheduler.add(Job::new_async(polling_interval, move |_uuid, _l| {
-            let polling_client = polling_client.clone();
-            let last_game_id_clone = last_game_id.clone();
-            let steam_ids = steam_ids.clone();
-            Box::pin(async move {
-                let steam_ids_clone = steam_ids.clone();
-                polling_logic(polling_client, last_game_id_clone, steam_ids_clone).await;
-            })
-        })?).await?;
+        self.job_scheduler
+            .add(Job::new_async(polling_interval, move |_uuid, _l| {
+                let polling_client = polling_client.clone();
+                let last_game_id_clone = last_game_id.clone();
+                let steam_ids = steam_ids.clone();
+                Box::pin(async move {
+                    let steam_ids_clone = steam_ids.clone();
+                    polling_logic(polling_client, last_game_id_clone, steam_ids_clone).await;
+                })
+            })?)
+            .await?;
         self.job_scheduler.start().await?;
         Ok(())
     }
